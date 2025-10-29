@@ -57,12 +57,27 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     else:
         images = None
 
-    inputs = processor(prompt, images=images, return_tensors="pt").to(model.device if hasattr(model, "device") else device)
+    # --- START OF FIX ---
+    
+    # FIX 1: Use explicit keywords `text=prompt` and `images=images`
+    # This solves the "multiple values for argument 'images'" error.
+    inputs = processor(
+        text=prompt, 
+        images=images, 
+        return_tensors="pt"
+    ).to(model.device if hasattr(model, "device") else device)
+
+    # Get the length of the input tokens
+    input_len = inputs.input_ids.shape[1]
 
     with torch.no_grad():
         output = model.generate(**inputs, max_new_tokens=max_tokens)
 
-    decoded = processor.batch_decode(output, skip_special_tokens=True)[0]
+    # FIX 2: Decode *only* the newly generated tokens
+    # This separates the answer from the prompt and fixes the 0% accuracy.
+    generated_tokens = output[0][input_len:]
+    decoded = processor.decode(generated_tokens, skip_special_tokens=True)
+    
     return decoded.strip()
 
 # --- Run Evaluation ---
