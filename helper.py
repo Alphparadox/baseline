@@ -589,37 +589,55 @@ def save_results(output_folder, transform, img_id, variation, regeneration,
         df_to_add.to_csv(output_file, index=False)
     print("-" * 80, "\n", f"Saved results for {img_id} in {output_file}")
 
+#
+# PASTE THIS ENTIRE FUNCTION INTO HELPER.PY
+#
 def load_correctness_from_csv(folder_path):
     """
-    Reads all CSV files in 'folder_path'. Each CSV has columns:
-        Img_id, MCResponse#1, MCResponse#2, MCResponse#3
-    with 0/1 indicating correctness for each phase.
-
-    Returns:
-        dict: ex {
-            'ColourRed_0_1': [0, 1, 0],
-            '2DRotation+90_0_0': [1, 1, 0],
-            ...
-        }
-        where each key is the Img_id from the CSV, and the value is
-        a list of correctness values [cross, within, extrapolation].
+    Reads the 'all_results.csv' file from the folder path.
+    This CSV has raw model answers and ground truths.
+    It computes the correctness (0 or 1) on the fly.
     """
     correctness_dict = {}
+    
+    # The main script creates one file: all_results.csv
+    csv_path = os.path.join(folder_path, "all_results.csv")
 
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".csv"):
-            csv_path = os.path.join(folder_path, filename)
-            with open(csv_path, mode='r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    img_id = row["Img_id"]  # ex "ColourRed_0_1"
-                    mc1 = int(row["MCResponse#1"])
-                    mc2 = int(row["MCResponse#2"])
-                    mc3 = int(row["MCResponse#3"])
+    if not os.path.exists(csv_path):
+        print(f"ERROR in helper.py: Cannot find {csv_path}")
+        return correctness_dict
 
-                    correctness_dict[img_id] = [mc1, mc2, mc3]
+    with open(csv_path, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                # 1. Get the image ID (FIX 1: "img_id" - all lowercase)
+                img_id = row["img_id"] 
+
+                # 2. Check Cross Domain
+                # Use the helper function we already have
+                model_ans_cross = extract_model_answer(row["cross_domain_answer"], "numbers")
+                gt_cross = row["cross_domain_ground_truth"]
+                mc1 = 1 if model_ans_cross == gt_cross else 0
+
+                # 3. Check Within Domain
+                model_ans_within = extract_model_answer(row["within_domain_answer"], "numbers")
+                gt_within = row["within_domain_ground_truth"]
+                mc2 = 1 if model_ans_within == gt_within else 0
+
+                # 4. Check Extrapolation
+                model_ans_extra = extract_model_answer(row["extrapolation_answer"], "letters")
+                gt_extra = row["extrapolation_ground_truth"]
+                mc3 = 1 if model_ans_extra == gt_extra else 0
+
+                correctness_dict[img_id] = [mc1, mc2, mc3]
+            
+            except Exception as e:
+                print(f"Error parsing row in helper.py: {e}")
+                print(f"Problem row: {row}")
 
     return correctness_dict
+
 
 def init_analysis_results(answer_types, transform_types):
     """
