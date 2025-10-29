@@ -13,7 +13,9 @@ prefix = "" if difficulty_type == "kiva" else "adults_"
 
 os.makedirs(output_folder, exist_ok=True)
 
-
+# NOTE: The helper.py download is not part of this script,
+# but you must have the *edited* helper.py (with './' paths)
+# in the same directory.
 
 print("Downloading images...")
 os.system(f"wget -q 'https://storage.googleapis.com/kiva_test/{prefix}{presentation_type}_image.zip' -O '{prefix}{presentation_type}_image.zip'")
@@ -82,16 +84,43 @@ for idx, (img_id, img_metadata) in enumerate(data_dict.items()):
     transform = parts[0] if len(parts) > 0 else "Unknown"
     variation = parts[1] if len(parts) > 1 else "Unknown"
 
-    image_path = [img_info["image_A"], img_info["image_B"]] if presentation_type == "multi" else img_info["image_path"]
+    # --- START OF CODE FIX ---
+    # The original script had a KeyError on line 85.
+    # We fix it by manually constructing the paths and passing the
+    # correct images to each prompt.
 
     gt_cross_domain = img_info["cross_domain_label"]
     gt_within_domain = img_info["within_domain_label"]
     gt_extrapolation = img_info["extrapolation_label"]
 
     try:
-        ans_cross_domain = run_llava(general_cross_rule_prompt, image_path)
-        ans_within_domain = run_llava(general_within_rule_prompt, image_path)
-        ans_extrapolation = run_llava(extrapolation_prompt, image_path)
+        if presentation_type == "multi":
+            # --- Define all paths for multi-presentation ---
+            train_id = '_'.join(img_id.split('_')[:2])
+            train_path = f'./multi_image/{train_id}_train.jpg'
+            
+            # Questions 1 & 2 (cross/within) use only the training image
+            ans_cross_domain = run_llava(general_cross_rule_prompt, train_path)
+            ans_within_domain = run_llava(general_within_rule_prompt, train_path)
+            
+            # Question 3 (Extrapolation) uses the training image + 3 test images
+            test0_path = f'./multi_image/{img_id}_test_0.jpg'
+            test1_path = f'./multi_image/{img_id}_test_1.jpg'
+            test2_path = f'./multi_image/{img_id}_test_2.jpg'
+            
+            extrapolation_image_list = [train_path, test0_path, test1_path, test2_path]
+            ans_extrapolation = run_llava(extrapolation_prompt, extrapolation_image_list)
+
+        else: # presentation_type == "single"
+            # --- Define path for single-presentation ---
+            image_path = f'./single_image/{img_id}_single.jpg'
+            
+            # In single mode, all 3 prompts run on the same image
+            ans_cross_domain = run_llava(general_cross_rule_prompt, image_path)
+            ans_within_domain = run_llava(general_within_rule_prompt, image_path)
+            ans_extrapolation = run_llava(extrapolation_prompt, image_path)
+        
+        # --- END OF CODE FIX ---
 
         # --- ✅ NEW DEBUGGING STEP ---
         # Print the model's answers vs. ground truth for each image
