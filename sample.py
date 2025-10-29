@@ -13,9 +13,8 @@ prefix = "" if difficulty_type == "kiva" else "adults_"
 
 os.makedirs(output_folder, exist_ok=True)
 
-# NOTE: The helper.py download is not part of this script,
-# but you must have the *edited* helper.py (with './' paths)
-# in the same directory.
+# NOTE: This script assumes your *edited* helper.py (with './' paths)
+# is in the same directory.
 
 print("Downloading images...")
 os.system(f"wget -q 'https://storage.googleapis.com/kiva_test/{prefix}{presentation_type}_image.zip' -O '{prefix}{presentation_type}_image.zip'")
@@ -29,6 +28,7 @@ print(f"Data ready. Total samples: {len(data_dict)}")
 # --- Show Example ---
 concept = "2DRotation"
 helper.show_concept_example(data_dict, concept, presentation_type)
+# These are prompt TEMPLATES (they have "{}" in them)
 system_prompt, general_cross_rule_prompt, general_within_rule_prompt, extrapolation_prompt = helper.display_all_prompts(presentation_type)
 
 # --- Load Local LLaVA 13B ---
@@ -74,6 +74,9 @@ csv_path = os.path.join(evaluation_output_folder, "all_results.csv")
 results_list = []
 start_time = time.time()
 
+# --- START OF MAJOR CORRECTION ---
+# We must generate the ground truth and final prompts *inside* the loop.
+
 for idx, (img_id, img_metadata) in enumerate(data_dict.items()):
     if idx % 25 == 0 and idx != 0:
         elapsed = time.time() - start_time
@@ -83,47 +86,53 @@ for idx, (img_id, img_metadata) in enumerate(data_dict.items()):
     parts = img_id.split("_")
     transform = parts[0] if len(parts) > 0 else "Unknown"
     variation = parts[1] if len(parts) > 1 else "Unknown"
-
-    # --- START OF CODE FIX ---
-    # The original script had a KeyError on line 85.
-    # We fix it by manually constructing the paths and passing the
-    # correct images to each prompt.
-
-    gt_cross_domain = img_info["cross_domain_label"]
-    gt_within_domain = img_info["within_domain_label"]
-    gt_extrapolation = img_info["extrapolation_label"]
-
+    
     try:
+        # --- 1. Generate Cross-Domain Prompt & Ground Truth ---
+        # helper.py generates the options and the correct answer, e.g., "(1)"
+        cross_options, gt_cross_domain, correct_concept = helper.generate_cross_options(img_id)
+        cross_options_str = ", ".join(cross_options)
+        # We format the template prompt with the options
+        final_cross_prompt = general_cross_rule_prompt.format(cross_options_str)
+
+        # --- 2. Generate Within-Domain Prompt & Ground Truth ---
+        within_options, gt_within_domain, correct_param = helper.generate_within_options(img_id, img_info)
+        within_options_str = ", ".join(within_options)
+        # We format the template prompt with the options
+        final_within_prompt = general_within_rule_prompt.format(within_options_str)
+
+        # --- 3. Get Extrapolation Ground Truth ---
+        # The correct key from the JSON is 'correct', e.g., "(A)"
+        gt_extrapolation = img_info['correct'] 
+
+        # --- 4. Run Inference with correct paths AND correct prompts ---
         if presentation_type == "multi":
-            # --- Define all paths for multi-presentation ---
             train_id = '_'.join(img_id.split('_')[:2])
             train_path = f'./multi_image/{train_id}_train.jpg'
             
-            # Questions 1 & 2 (cross/within) use only the training image
-            ans_cross_domain = run_llava(general_cross_rule_prompt, train_path)
-            ans_within_domain = run_llava(general_within_rule_prompt, train_path)
+            # Use the FINAL formatted prompt
+            ans_cross_domain = run_llava(final_cross_prompt, train_path)
+            ans_within_domain = run_llava(final_within_prompt, train_path)
             
-            # Question 3 (Extrapolation) uses the training image + 3 test images
             test0_path = f'./multi_image/{img_id}_test_0.jpg'
             test1_path = f'./multi_image/{img_id}_test_1.jpg'
             test2_path = f'./multi_image/{img_id}_test_2.jpg'
-            
             extrapolation_image_list = [train_path, test0_path, test1_path, test2_path]
+            
+            # Extrapolation prompt has no options to format
             ans_extrapolation = run_llava(extrapolation_prompt, extrapolation_image_list)
 
         else: # presentation_type == "single"
-            # --- Define path for single-presentation ---
             image_path = f'./single_image/{img_id}_single.jpg'
             
-            # In single mode, all 3 prompts run on the same image
-            ans_cross_domain = run_llava(general_cross_rule_prompt, image_path)
-            ans_within_domain = run_llava(general_within_rule_prompt, image_path)
+            # Use the FINAL formatted prompts
+            ans_cross_domain = run_llava(final_cross_prompt, image_path)
+            ans_within_domain = run_llava(final_within_prompt, image_path)
             ans_extrapolation = run_llava(extrapolation_prompt, image_path)
-        
-        # --- END OF CODE FIX ---
 
-        # --- ✅ NEW DEBUGGING STEP ---
-        # Print the model's answers vs. ground truth for each image
+        # --- END OF MAJOR CORRECTION ---
+
+        # --- Debugging Step ---
         print(f"\n--- [Debug] Processing Image: {img_id} ---")
         print(f"  [Cross Domain]   Model Answer: {ans_cross_domain}")
         print(f"                   Ground Truth: {gt_cross_domain}")
@@ -178,7 +187,20 @@ else:
     print("\n--- Subcategory Results ---")
     helper.print_subcategory_results(analysis_results)
     print("\n--- Plotting Results ---")
-    helper.plot_results(analysis_results, evaluation_output_folder)
-    print(f"📈 Plots saved in {evaluation_output_folder}")
-
+    # This was plot_results(analysis_results, evaluation_output_folder)
+    # But helper.py's plot_results takes 1 argument. 
+    # This might be another bug, but we will follow helper.py's definition.
+    # If plotting fails, we may need to edit helper.py
+    try:
+        helper.plot_results(analysis_results, evaluation_output_folder)
+        print(f"📈 Plots saved in {evaluation_output_folder}")
+    except TypeError:
+        print("Attempting plot fix (1 arg)...")
+        try:
+            # Try the other function signature from the helper.py you sent
+            helper.plot_results(analysis_results) 
+            print(f"📈 Plots saved in {evaluation_output_folder}")
+        except Exception as e:
+            print(f"⚠️ Plotting failed: {e}")
+            
 print("\n✅ Script Finished Successfully.")
