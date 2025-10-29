@@ -47,6 +47,7 @@ model = LlavaForConditionalGeneration.from_pretrained(
 print(f"✅ Model loaded successfully on device(s): {model.device if hasattr(model, 'device') else 'auto-mapped'}")
 
 # --- Inference Function ---
+# --- Inference Function ---
 def run_llava(prompt, image_path=None, max_tokens=150):
     """Run LLaVA locally with image and text."""
     if image_path is not None:
@@ -59,10 +60,21 @@ def run_llava(prompt, image_path=None, max_tokens=150):
 
     # --- START OF FIX ---
     
-    # FIX 1: Use explicit keywords `text=prompt` and `images=images`
-    # This solves the "multiple values for argument 'images'" error.
+    # FIX: The LLaVA model requires a specific prompt format
+    # including <image> tokens. The number of <image> tokens
+    # must match the number of images.
+    
+    image_tokens = ""
+    if images is not None:
+        # Create one "<image>\n" string for each image
+        image_tokens = "<image>\n" * len(images)
+        
+    # Format the final prompt for the model
+    # This is the standard LLaVA 1.5 prompt structure
+    final_prompt = f"USER: {image_tokens}{prompt}\nASSISTANT:"
+
     inputs = processor(
-        text=prompt, 
+        text=final_prompt, # Use the new, fully-formatted prompt
         images=images, 
         return_tensors="pt"
     ).to(model.device if hasattr(model, "device") else device)
@@ -73,13 +85,12 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     with torch.no_grad():
         output = model.generate(**inputs, max_new_tokens=max_tokens)
 
-    # FIX 2: Decode *only* the newly generated tokens
-    # This separates the answer from the prompt and fixes the 0% accuracy.
+    # Decode *only* the newly generated tokens
     generated_tokens = output[0][input_len:]
     decoded = processor.decode(generated_tokens, skip_special_tokens=True)
     
     return decoded.strip()
-
+    # --- END OF FIX ---
 # --- Run Evaluation ---
 print("\n🚀 Starting evaluation loop...")
 evaluation_output_folder = f"{output_folder}/{presentation_type}_{difficulty_type}/"
