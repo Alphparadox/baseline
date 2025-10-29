@@ -12,6 +12,7 @@ import PIL.Image
 from PIL import ImageOps
 import textwrap
 #anil
+#vraj
 def prepare_data(presentation_type):
     image_categories = {task: [] for task in ['2DRotation', 'Colour', 'Counting', 'Reflect', 'Resize']}
     base_path = f"./{presentation_type}_image"
