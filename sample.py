@@ -32,6 +32,7 @@ helper.show_concept_example(data_dict, concept, presentation_type)
 system_prompt, general_cross_rule_prompt, general_within_rule_prompt, extrapolation_prompt = helper.display_all_prompts(presentation_type)
 
 # --- Load Local LLaVA 13B ---
+# --- Load Local LLaVA 13B ---
 print("Loading local LLaVA model (13B)...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model_id = "llava-hf/llava-1.5-13b-hf"
@@ -41,7 +42,7 @@ processor = AutoProcessor.from_pretrained(model_id)
 model = LlavaForConditionalGeneration.from_pretrained(
     model_id,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="auto"
+    device_map="cuda"  # <--- THIS IS THE FIX
 )
 
 print(f"✅ Model loaded successfully on device(s): {model.device if hasattr(model, 'device') else 'auto-mapped'}")
@@ -90,7 +91,7 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     decoded = processor.decode(generated_tokens, skip_special_tokens=True)
     
     return decoded.strip()
-    # --- END OF FIX ---
+    # --- END OF FIX --- 
 # --- Run Evaluation ---
 print("\n🚀 Starting evaluation loop...")
 evaluation_output_folder = f"{output_folder}/{presentation_type}_{difficulty_type}/"

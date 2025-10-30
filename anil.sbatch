@@ -27,6 +27,14 @@ echo "=============================="
 echo "Activating conda environment..."
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate kiva_env
+
+# --- ADD THESE LINES ---
+# Set a persistent cache directory in your home folder
+export HF_HOME="/home/naveenkumar/.cache/huggingface"
+mkdir -p $HF_HOME
+echo "Using Hugging Face cache at: $HF_HOME"
+# --- END OF ADDITION ---
+
 echo "Environment loaded."
 
 # -----------------------------
