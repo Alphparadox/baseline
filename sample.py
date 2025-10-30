@@ -1,5 +1,6 @@
 import os
 import time
+import argparse
 import torch
 import pandas as pd
 from PIL import Image
@@ -15,6 +16,14 @@ os.makedirs(output_folder, exist_ok=True)
 
 # NOTE: This script assumes your *edited* helper.py (with './' paths)
 # is in the same directory.
+
+parser = argparse.ArgumentParser(description="Run baseline evaluation with LLaVA or in fast simulate mode")
+parser.add_argument("--simulate", action="store_true", help="Run in fast simulate mode (no model load). Useful for debugging")
+parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples processed (for quick runs)")
+args = parser.parse_args()
+
+SIMULATE = args.simulate
+MAX_SAMPLES = args.max_samples
 
 print("Downloading images...")
 os.system(f"wget -q 'https://storage.googleapis.com/kiva_test/{prefix}{presentation_type}_image.zip' -O '{prefix}{presentation_type}_image.zip'")
@@ -36,19 +45,34 @@ print("Loading local LLaVA model (13B)...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model_id = "llava-hf/llava-1.5-13b-hf"
 
-# Automatically map model across GPUs (recommended for 13B)
-processor = AutoProcessor.from_pretrained(model_id)
-model = LlavaForConditionalGeneration.from_pretrained(
-    model_id,
-    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="auto"
-)
+# If user asked for simulation, skip heavy model loading
+if SIMULATE:
+    print("--simulate flag detected: skipping model & processor load (fast mode)")
+    processor = None
+    model = None
+else:
+    # Automatically map model across GPUs (recommended for 13B)
+    processor = AutoProcessor.from_pretrained(model_id)
+    model = LlavaForConditionalGeneration.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto"
+    )
 
-print(f"✅ Model loaded successfully on device(s): {model.device if hasattr(model, 'device') else 'auto-mapped'}")
+    print(f"✅ Model loaded successfully on device(s): {model.device if hasattr(model, 'device') else 'auto-mapped'}")
 
 # --- Inference Function ---
 def run_llava(prompt, image_path=None, max_tokens=150):
     """Run LLaVA locally with image and text."""
+    # Fast simulate mode: return quick deterministic answers without loading model
+    if SIMULATE:
+        # Try to guess whether the prompt is an extrapolation (letters) or a MCQ (numbers)
+        pl = prompt.lower()
+        if "three" in pl or "(a)" in pl or "(b)" in pl or "(c)" in pl or "(d)" in pl:
+            return "(A) Simulated answer: pick (A)"
+        else:
+            return "(1) Simulated answer: pick (1)"
+
     if image_path is not None:
         if isinstance(image_path, list):
             images = [Image.open(p).convert("RGB") for p in image_path]
@@ -102,14 +126,17 @@ csv_path = os.path.join(evaluation_output_folder, "all_results.csv")
 
 results_list = []
 start_time = time.time()
+total_samples = len(data_dict) if MAX_SAMPLES is None else min(len(data_dict), MAX_SAMPLES)
 
 # --- START OF MAJOR CORRECTION ---
 # We must generate the ground truth and final prompts *inside* the loop.
 
 for idx, (img_id, img_metadata) in enumerate(data_dict.items()):
+    if idx >= total_samples:
+        break
     if idx % 25 == 0 and idx != 0:
         elapsed = time.time() - start_time
-        print(f"Processed {idx}/{len(data_dict)} images ({elapsed:.1f}s elapsed)")
+        print(f"Processed {idx}/{total_samples} images ({elapsed:.1f}s elapsed)")
 
     img_info = data_dict[img_id]
     parts = img_id.split("_")

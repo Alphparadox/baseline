@@ -52,7 +52,7 @@ fi
 # 3️⃣ Run your Python benchmark
 # -----------------------------
 echo "Running LLaVA benchmark..."
-python /home/naveenkumar/baseline/sample.py
+python /home/naveenkumar/baseline/sample.py  --max-samples 50
 
 echo "=============================="
 echo "Job finished at $(date)"
