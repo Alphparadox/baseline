@@ -57,18 +57,36 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     else:
         images = None
 
-    # Avoid passing prompt positionally because processor()'s first positional
-    # argument is interpreted as `images`. Passing `prompt` positionally and
-    # also using `images=` causes Python to give multiple values for the
-    # `images` argument. Use explicit keywords instead.
-    if images is None:
-        inputs = processor(text=prompt, return_tensors="pt").to(
-            model.device if hasattr(model, "device") else device
-        )
-    else:
-        inputs = processor(text=prompt, images=images, return_tensors="pt").to(
-            model.device if hasattr(model, "device") else device
-        )
+    # Many multimodal processors require explicit image placeholder tokens
+    # (e.g. "<image>") in the input text so that the tokenizer knows where
+    # image embeddings should be inserted. If we provide N images but the
+    # prompt contains 0 image tokens, the model will raise an error like:
+    # "The number of image tokens is 0 while the number of image given to the
+    # model is 1". To avoid that, prepend the correct number of image
+    # placeholders to the prompt text.
+    text_prompt = prompt
+    if images is not None and len(images) > 0:
+        # Use '<image>' as the placeholder expected by LLaVA-style processors.
+        # Prepend one placeholder per image to ensure counts match.
+        image_placeholders = " ".join(["<image>"] * len(images))
+        text_prompt = image_placeholders + "\n" + prompt
+
+    try:
+        if images is None:
+            inputs = processor(text=text_prompt, return_tensors="pt").to(
+                model.device if hasattr(model, "device") else device
+            )
+        else:
+            inputs = processor(text=text_prompt, images=images, return_tensors="pt").to(
+                model.device if hasattr(model, "device") else device
+            )
+    except Exception as e:
+        # Add contextual information to help debugging when processor complains
+        # about image token / image count mismatches.
+        raise RuntimeError(
+            f"Processor failed preparing inputs for prompt. ``prompt`` len={len(prompt)}; "
+            f"images_len={0 if images is None else len(images)}; error={e}"
+        ) from e
 
     with torch.no_grad():
         output = model.generate(**inputs, max_new_tokens=max_tokens)
