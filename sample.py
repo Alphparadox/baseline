@@ -32,7 +32,6 @@ helper.show_concept_example(data_dict, concept, presentation_type)
 system_prompt, general_cross_rule_prompt, general_within_rule_prompt, extrapolation_prompt = helper.display_all_prompts(presentation_type)
 
 # --- Load Local LLaVA 13B ---
-# --- Load Local LLaVA 13B ---
 print("Loading local LLaVA model (13B)...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model_id = "llava-hf/llava-1.5-13b-hf"
@@ -42,12 +41,11 @@ processor = AutoProcessor.from_pretrained(model_id)
 model = LlavaForConditionalGeneration.from_pretrained(
     model_id,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="cuda"  # <--- THIS IS THE FIX
+    device_map="auto"
 )
 
 print(f"✅ Model loaded successfully on device(s): {model.device if hasattr(model, 'device') else 'auto-mapped'}")
 
-# --- Inference Function ---
 # --- Inference Function ---
 def run_llava(prompt, image_path=None, max_tokens=150):
     """Run LLaVA locally with image and text."""
@@ -59,39 +57,14 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     else:
         images = None
 
-    # --- START OF FIX ---
-    
-    # FIX: The LLaVA model requires a specific prompt format
-    # including <image> tokens. The number of <image> tokens
-    # must match the number of images.
-    
-    image_tokens = ""
-    if images is not None:
-        # Create one "<image>\n" string for each image
-        image_tokens = "<image>\n" * len(images)
-        
-    # Format the final prompt for the model
-    # This is the standard LLaVA 1.5 prompt structure
-    final_prompt = f"USER: {image_tokens}{prompt}\nASSISTANT:"
-
-    inputs = processor(
-        text=final_prompt, # Use the new, fully-formatted prompt
-        images=images, 
-        return_tensors="pt"
-    ).to(model.device if hasattr(model, "device") else device)
-
-    # Get the length of the input tokens
-    input_len = inputs.input_ids.shape[1]
+    inputs = processor(prompt, images=images, return_tensors="pt").to(model.device if hasattr(model, "device") else device)
 
     with torch.no_grad():
         output = model.generate(**inputs, max_new_tokens=max_tokens)
 
-    # Decode *only* the newly generated tokens
-    generated_tokens = output[0][input_len:]
-    decoded = processor.decode(generated_tokens, skip_special_tokens=True)
-    
+    decoded = processor.batch_decode(output, skip_special_tokens=True)[0]
     return decoded.strip()
-    # --- END OF FIX --- 
+
 # --- Run Evaluation ---
 print("\n🚀 Starting evaluation loop...")
 evaluation_output_folder = f"{output_folder}/{presentation_type}_{difficulty_type}/"
