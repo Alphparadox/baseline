@@ -57,7 +57,18 @@ def run_llava(prompt, image_path=None, max_tokens=150):
     else:
         images = None
 
-    inputs = processor(prompt, images=images, return_tensors="pt").to(model.device if hasattr(model, "device") else device)
+    # Avoid passing prompt positionally because processor()'s first positional
+    # argument is interpreted as `images`. Passing `prompt` positionally and
+    # also using `images=` causes Python to give multiple values for the
+    # `images` argument. Use explicit keywords instead.
+    if images is None:
+        inputs = processor(text=prompt, return_tensors="pt").to(
+            model.device if hasattr(model, "device") else device
+        )
+    else:
+        inputs = processor(text=prompt, images=images, return_tensors="pt").to(
+            model.device if hasattr(model, "device") else device
+        )
 
     with torch.no_grad():
         output = model.generate(**inputs, max_new_tokens=max_tokens)
